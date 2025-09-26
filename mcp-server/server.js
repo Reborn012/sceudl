@@ -5,6 +5,18 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { randomUUID } from "crypto";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { z } from "zod";
+import dotenv from "dotenv";
+
+// Load environment variables
+dotenv.config({ path: "../.env" });
+
+// Check if Gemini API key exists
+if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === "your_gemini_api_key_here") {
+  console.error("❌ GEMINI_API_KEY not configured!");
+  console.error("Please set your Gemini API key in the .env file");
+  console.error("Get your key from: https://ai.google.dev/gemini-api/docs/api-key");
+  process.exit(1);
+}
 
 // Load Gemini key from environment
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -37,9 +49,14 @@ server.registerTool(
     inputSchema: { prompt: z.string() },
   },
   async ({ prompt }) => {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
-    const result = await model.generateContent(prompt);
-    return { content: [{ type: "text", text: result.response.text() }] };
+    try {
+      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+      const result = await model.generateContent(prompt);
+      return { content: [{ type: "text", text: result.response.text() }] };
+    } catch (error) {
+      console.error("❌ Gemini API Error:", error);
+      return { content: [{ type: "text", text: `Error: ${error.message}` }] };
+    }
   }
 );
 
@@ -85,7 +102,7 @@ IMPORTANT: Return ONLY valid JSON (no text, no markdown, no explanations).
 `;
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
     const result = await model.generateContent(prompt);
     let text = result.response.text().trim();
 
@@ -103,6 +120,9 @@ IMPORTANT: Return ONLY valid JSON (no text, no markdown, no explanations).
     res.json(parsed);
   } catch (err) {
     console.error("❌ Schedule API error:", err);
+    if (err.message?.includes("API_KEY")) {
+      return res.status(500).json({ error: "Invalid or missing Gemini API key" });
+    }
     res.status(500).json({ error: "Internal server error" });
   }
 });
