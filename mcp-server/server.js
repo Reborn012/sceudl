@@ -65,8 +65,8 @@ server.registerTool(
 // =======================
 const app = express();
 
-// ✅ Allow frontend (Vite on port 5173) to call backend
-app.use(cors({ origin: "http://localhost:5173" }));
+// ✅ Allow frontend (Next.js on port 3001 and Vite on port 5173) to call backend
+app.use(cors({ origin: ["http://localhost:5173", "http://localhost:3001", "http://localhost:3000"] }));
 app.use(express.json());
 
 // =======================
