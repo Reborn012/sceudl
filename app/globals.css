@@ -59,3 +59,48 @@
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
+
+/* Scrollbar styling for webkit browsers (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(0 0% 96%);
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(0 0% 80%);
+  border-radius: 6px;
+  border: 2px solid hsl(0 0% 96%);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(0 0% 70%);
+}
+
+/* Dark mode scrollbar */
+.dark ::-webkit-scrollbar-track {
+  background: hsl(222.2 84% 8%);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: hsl(217.2 32.6% 25%);
+  border: 2px solid hsl(222.2 84% 8%);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: hsl(217.2 32.6% 35%);
+}
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(0 0% 80%) hsl(0 0% 96%);
+}
+
+.dark * {
+  scrollbar-color: hsl(217.2 32.6% 25%) hsl(222.2 84% 8%);
+}
