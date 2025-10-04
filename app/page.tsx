@@ -86,7 +86,7 @@ export default function Home() {
     if (!sessionId) return
 
     try {
-      const response = await fetch(`http://localhost:3001/google-auth-status?sessionId=${sessionId}`)
+      const response = await fetch(`http://localhost:3002/google-auth-status?sessionId=${sessionId}`)
       const data = await response.json()
       setIsGoogleCalendarConnected(data.authenticated)
     } catch (error) {
@@ -212,7 +212,7 @@ export default function Home() {
 
       try {
         console.log("🚀 Sending PDF to backend...")
-        const response = await fetch("http://localhost:3001/upload-pdf", {
+        const response = await fetch("http://localhost:3002/upload-pdf", {
           method: "POST",
           body: formData,
         })
@@ -365,7 +365,7 @@ export default function Home() {
         })
 
         // Step 2: Send to AI to generate ONLY study sessions based on goals
-        const response = await fetch("http://localhost:3001/schedule", {
+        const response = await fetch("http://localhost:3002/schedule", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -605,7 +605,7 @@ export default function Home() {
     setIsAIThinking(true)
 
     try {
-      const response = await fetch("http://localhost:3001/ai-chat", {
+      const response = await fetch("http://localhost:3002/ai-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -660,7 +660,7 @@ export default function Home() {
 
   const handleGoogleCalendarConnect = async () => {
     try {
-      const response = await fetch("http://localhost:3001/google-auth-url")
+      const response = await fetch("http://localhost:3002/google-auth-url")
       const data = await response.json()
 
       // Save session ID
@@ -688,7 +688,7 @@ export default function Home() {
 
     setIsSyncing(true)
     try {
-      const response = await fetch("http://localhost:3001/sync-to-google-calendar", {
+      const response = await fetch("http://localhost:3002/sync-to-google-calendar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -779,16 +779,31 @@ export default function Home() {
                 onClick={handleGoogleCalendarConnect}
                 className="w-full flex items-center justify-center gap-2 rounded-md bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer transition-all hover:border-blue-500 dark:hover:border-blue-500"
               >
-                <Calendar className="h-4 w-4" />
-                <span>Connect Google Calendar</span>
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="2" fill="none"/>
+                  <line x1="3" y1="9" x2="21" y2="9" stroke="currentColor" strokeWidth="2"/>
+                  <line x1="8" y1="2" x2="8" y2="6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  <line x1="16" y1="2" x2="16" y2="6" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  <circle cx="8" cy="14" r="1.5" fill="#4285F4"/>
+                  <circle cx="12" cy="14" r="1.5" fill="#EA4335"/>
+                  <circle cx="16" cy="14" r="1.5" fill="#FBBC04"/>
+                  <circle cx="8" cy="18" r="1.5" fill="#34A853"/>
+                </svg>
+                <span>Connect to Google Calendar</span>
               </button>
             ) : (
               <button
                 onClick={handleSyncToGoogleCalendar}
                 disabled={isSyncing || events.length === 0}
-                className="w-full flex items-center justify-center gap-2 rounded-md bg-green-500 px-3 py-2 text-sm font-medium text-white cursor-pointer transition-all hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full flex items-center justify-center gap-2 rounded-md bg-blue-500 px-3 py-2 text-sm font-medium text-white cursor-pointer transition-all hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Calendar className="h-4 w-4" />
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="4" width="18" height="18" rx="2" stroke="white" strokeWidth="2" fill="none"/>
+                  <line x1="3" y1="9" x2="21" y2="9" stroke="white" strokeWidth="2"/>
+                  <line x1="8" y1="2" x2="8" y2="6" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+                  <line x1="16" y1="2" x2="16" y2="6" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+                  <circle cx="12" cy="15" r="3" fill="white"/>
+                </svg>
                 <span>{isSyncing ? "Syncing..." : "Sync to Google Calendar"}</span>
               </button>
             )}

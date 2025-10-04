@@ -724,10 +724,11 @@ function getGoogleCalendarColorId(color) {
 // =======================
 // 📌 Start Server
 // =======================
-app.listen(3001, () => {
-  console.log("✅ MCP + Scheduler server running at http://localhost:3001");
-  console.log("➡️  Scheduler API: POST http://localhost:3001/schedule");
-  console.log("➡️  MCP endpoint: POST http://localhost:3001/mcp");
-  console.log("➡️  Google Calendar Auth: GET http://localhost:3001/google-auth-url");
-  console.log("➡️  Google Calendar Sync: POST http://localhost:3001/sync-to-google-calendar");
+const PORT = process.env.PORT || 3002;
+app.listen(PORT, () => {
+  console.log(`✅ MCP + Scheduler server running at http://localhost:${PORT}`);
+  console.log(`➡️  Scheduler API: POST http://localhost:${PORT}/schedule`);
+  console.log(`➡️  MCP endpoint: POST http://localhost:${PORT}/mcp`);
+  console.log(`➡️  Google Calendar Auth: GET http://localhost:${PORT}/google-auth-url`);
+  console.log(`➡️  Google Calendar Sync: POST http://localhost:${PORT}/sync-to-google-calendar`);
 });
