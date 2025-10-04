@@ -32,10 +32,16 @@ export default function Home() {
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [draggedEvent, setDraggedEvent] = useState(null)
   const [dragOverDay, setDragOverDay] = useState(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const [dragPreview, setDragPreview] = useState(null)
+  const [resizingEvent, setResizingEvent] = useState(null)
+  const [resizeDirection, setResizeDirection] = useState(null)
   const [showSchedulePopup, setShowSchedulePopup] = useState(false)
   const [scheduleInput, setScheduleInput] = useState("")
   const [studyGoals, setStudyGoals] = useState("")
   const [uploadedFileName, setUploadedFileName] = useState("")
+  const [intensity, setIntensity] = useState(2) // 1 = Light, 2 = Moderate, 3 = Heavy
 
   useEffect(() => {
     setIsLoaded(true)
@@ -246,14 +252,26 @@ export default function Home() {
           body: JSON.stringify({
             classTimes: classTimes,
             studyGoals: studyGoals,
+            intensity: intensity,
           }),
         })
 
         if (response.ok) {
           const scheduleData = await response.json()
 
+          // Map day names to day indices (matching week view)
+          const dayNameMap = {
+            "Sunday": 1,
+            "Monday": 2,
+            "Tuesday": 3,
+            "Wednesday": 4,
+            "Thursday": 5,
+            "Friday": 6,
+            "Saturday": 7
+          }
+
           // Add AI-generated study sessions (avoiding class times)
-          Object.keys(scheduleData).forEach((dayName, dayIndex) => {
+          Object.keys(scheduleData).forEach((dayName) => {
             const daySchedule = scheduleData[dayName]
             Object.keys(daySchedule).forEach((timeSlot) => {
               const task = daySchedule[timeSlot]
@@ -268,7 +286,7 @@ export default function Home() {
                   startTime: convertTo24Hour(startTime),
                   endTime: convertTo24Hour(endTime),
                   color: colors[eventId % colors.length],
-                  day: dayIndex + 2, // Monday = 2, Tuesday = 3, etc.
+                  day: dayNameMap[dayName] || 2, // Use proper day mapping
                   description: `AI Study Session`,
                   location: "Study",
                   attendees: [],
@@ -299,31 +317,153 @@ export default function Home() {
     }
   }
 
-  const handleDragStart = (e, event) => {
-    setDraggedEvent(event)
-    e.dataTransfer.effectAllowed = "move"
+  // Snap time to nearest interval (15 minutes by default, like Google Calendar)
+  const snapToInterval = (minutes, interval = 15) => {
+    return Math.round(minutes / interval) * interval
   }
 
-  const handleDragOver = (e, dayIndex) => {
+  const handleDragStart = (e, event) => {
+    setDraggedEvent(event)
+    setIsDragging(true)
+    e.dataTransfer.effectAllowed = "move"
+    e.dataTransfer.setDragImage(new Image(), 0, 0) // Hide default drag image
+
+    // Store the offset where the user clicked within the event
+    const rect = e.currentTarget.getBoundingClientRect()
+    setDragOffset({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    })
+  }
+
+  const handleDragOver = (e, dayIndex, container) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = "move"
     setDragOverDay(dayIndex)
+
+    // Show preview of where the event will land
+    if (draggedEvent && container) {
+      const rect = container.getBoundingClientRect()
+      const containerScrollTop = container.scrollTop || 0
+      const yPosition = e.clientY - rect.top + containerScrollTop - dragOffset.y
+
+      // Convert to minutes and snap to 15-min intervals
+      const totalMinutes = snapToInterval((yPosition / 80) * 60)
+      const newStartHour = Math.floor(totalMinutes / 60)
+      const newStartMin = totalMinutes % 60
+
+      // Calculate duration
+      const [oldStartHour, oldStartMin] = draggedEvent.startTime.split(":").map(Number)
+      const [oldEndHour, oldEndMin] = draggedEvent.endTime.split(":").map(Number)
+      const durationMinutes = (oldEndHour * 60 + oldEndMin) - (oldStartHour * 60 + oldStartMin)
+
+      const newEndTotalMinutes = totalMinutes + durationMinutes
+      const newEndHour = Math.floor(newEndTotalMinutes / 60)
+      const newEndMin = newEndTotalMinutes % 60
+
+      if (newStartHour >= 0 && newStartHour < 24 && newEndHour >= 0 && newEndHour < 24) {
+        setDragPreview({
+          day: dayIndex,
+          startTime: `${String(newStartHour).padStart(2, "0")}:${String(newStartMin).padStart(2, "0")}`,
+          endTime: `${String(newEndHour).padStart(2, "0")}:${String(newEndMin).padStart(2, "0")}`,
+        })
+      }
+    }
   }
 
   const handleDragLeave = () => {
     setDragOverDay(null)
+    setDragPreview(null)
   }
 
-  const handleDrop = (e, newDay, newTime) => {
+  const handleDrop = (e, newDay, container) => {
     e.preventDefault()
-    if (draggedEvent) {
+    if (draggedEvent && dragPreview) {
       setEvents((prevEvents) =>
-        prevEvents.map((event) => (event.id === draggedEvent.id ? { ...event, day: newDay } : event)),
+        prevEvents.map((event) =>
+          event.id === draggedEvent.id
+            ? { ...event, day: newDay, startTime: dragPreview.startTime, endTime: dragPreview.endTime }
+            : event
+        )
       )
+
       setDraggedEvent(null)
       setDragOverDay(null)
+      setIsDragging(false)
+      setDragPreview(null)
     }
   }
+
+  // Handle event resizing
+  const handleResizeStart = (e, event, direction) => {
+    e.stopPropagation()
+    e.preventDefault()
+    setResizingEvent(event)
+    setResizeDirection(direction)
+  }
+
+  const handleResizeMove = (e, container) => {
+    if (!resizingEvent || !container) return
+
+    const rect = container.getBoundingClientRect()
+    const containerScrollTop = container.scrollTop || 0
+    const yPosition = e.clientY - rect.top + containerScrollTop
+
+    // Snap to 15-min intervals
+    const totalMinutes = snapToInterval((yPosition / 80) * 60)
+    const newHour = Math.floor(totalMinutes / 60)
+    const newMin = totalMinutes % 60
+
+    if (newHour >= 0 && newHour < 24) {
+      const newTime = `${String(newHour).padStart(2, "0")}:${String(newMin).padStart(2, "0")}`
+
+      setEvents((prevEvents) =>
+        prevEvents.map((event) => {
+          if (event.id === resizingEvent.id) {
+            if (resizeDirection === "top") {
+              // Resizing start time (top edge)
+              const [endHour, endMin] = event.endTime.split(":").map(Number)
+              const endMinutes = endHour * 60 + endMin
+              if (totalMinutes < endMinutes) {
+                return { ...event, startTime: newTime }
+              }
+            } else if (resizeDirection === "bottom") {
+              // Resizing end time (bottom edge)
+              const [startHour, startMin] = event.startTime.split(":").map(Number)
+              const startMinutes = startHour * 60 + startMin
+              if (totalMinutes > startMinutes) {
+                return { ...event, endTime: newTime }
+              }
+            }
+          }
+          return event
+        })
+      )
+    }
+  }
+
+  const handleResizeEnd = () => {
+    setResizingEvent(null)
+    setResizeDirection(null)
+  }
+
+  // Add global mouse up handler to ensure drag always stops
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (resizingEvent) {
+        handleResizeEnd()
+      }
+      if (isDragging) {
+        setDraggedEvent(null)
+        setDragOverDay(null)
+        setIsDragging(false)
+        setDragPreview(null)
+      }
+    }
+
+    window.addEventListener('mouseup', handleGlobalMouseUp)
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp)
+  }, [resizingEvent, isDragging])
 
   const formatTimeDisplay = (hour) => {
     if (hour === 0) return "12 AM"
@@ -499,6 +639,9 @@ export default function Home() {
                     </div>
 
                     <div
+                      ref={(el) => {
+                        if (el) el.dataset.dayContainer = getSelectedDayIndex()
+                      }}
                       className={`border-l border-gray-200 dark:border-gray-800 relative transition-colors ${
                         dragOverDay === getSelectedDayIndex() ? "bg-blue-50 dark:bg-blue-950/20" : ""
                       }`}
@@ -508,21 +651,50 @@ export default function Home() {
                         <div
                           key={timeIndex}
                           className="h-20 border-b border-gray-100 dark:border-gray-900 hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors"
-                          onDragOver={(e) => handleDragOver(e, getSelectedDayIndex())}
-                          onDrop={(e) => handleDrop(e, getSelectedDayIndex(), time)}
+                          onDragOver={(e) => {
+                            const container = e.currentTarget.parentElement
+                            handleDragOver(e, getSelectedDayIndex(), container)
+                          }}
+                          onDrop={(e) => {
+                            const container = e.currentTarget.parentElement
+                            handleDrop(e, getSelectedDayIndex(), container)
+                          }}
+                          onMouseMove={(e) => {
+                            const container = e.currentTarget.parentElement
+                            handleResizeMove(e, container)
+                          }}
+                          onMouseUp={handleResizeEnd}
                         ></div>
                       ))}
+
+                      {/* Drag preview */}
+                      {dragPreview && dragPreview.day === getSelectedDayIndex() && (
+                        <div
+                          className="absolute bg-blue-200 dark:bg-blue-900/40 border-2 border-blue-400 dark:border-blue-600 rounded-md pointer-events-none opacity-70"
+                          style={{
+                            ...calculateEventStyle(dragPreview.startTime, dragPreview.endTime),
+                            left: "8px",
+                            right: "8px",
+                          }}
+                        >
+                          <div className="p-2.5 text-xs text-blue-900 dark:text-blue-100">
+                            <div className="font-semibold">{draggedEvent?.title}</div>
+                            <div className="text-[11px] mt-1">{`${dragPreview.startTime} - ${dragPreview.endTime}`}</div>
+                          </div>
+                        </div>
+                      )}
 
                       {events
                         .filter((event) => event.day === getSelectedDayIndex())
                         .map((event, i) => {
                           const eventStyle = calculateEventStyle(event.startTime, event.endTime)
+                          const isBeingDragged = draggedEvent?.id === event.id
                           return (
                             <div
                               key={i}
                               draggable
                               onDragStart={(e) => handleDragStart(e, event)}
-                              className={`absolute ${getEventClasses(event.color)} rounded-md p-2.5 text-xs cursor-move transition-all hover:shadow-md`}
+                              className={`absolute ${getEventClasses(event.color)} rounded-md p-2.5 text-xs cursor-move transition-all hover:shadow-md group ${isBeingDragged ? "opacity-30" : ""}`}
                               style={{
                                 ...eventStyle,
                                 left: "8px",
@@ -530,8 +702,20 @@ export default function Home() {
                               }}
                               onClick={() => handleEventClick(event)}
                             >
+                              {/* Resize handle - top */}
+                              <div
+                                className="absolute top-0 left-0 right-0 h-1 cursor-n-resize opacity-0 group-hover:opacity-100 transition-opacity"
+                                onMouseDown={(e) => handleResizeStart(e, event, "top")}
+                              />
+
                               <div className="font-semibold truncate">{event.title}</div>
                               <div className="opacity-80 text-[11px] mt-1">{`${event.startTime} - ${event.endTime}`}</div>
+
+                              {/* Resize handle - bottom */}
+                              <div
+                                className="absolute bottom-0 left-0 right-0 h-1 cursor-s-resize opacity-0 group-hover:opacity-100 transition-opacity"
+                                onMouseDown={(e) => handleResizeStart(e, event, "bottom")}
+                              />
                             </div>
                           )
                         })}
@@ -571,6 +755,9 @@ export default function Home() {
                     {Array.from({ length: 7 }).map((_, dayIndex) => (
                       <div
                         key={dayIndex}
+                        ref={(el) => {
+                          if (el) el.dataset.dayContainer = dayIndex + 1
+                        }}
                         className={`border-l border-gray-200 dark:border-gray-800 relative transition-colors ${
                           dragOverDay === dayIndex + 1 ? "bg-blue-50 dark:bg-blue-950/20" : ""
                         }`}
@@ -580,21 +767,50 @@ export default function Home() {
                           <div
                             key={timeIndex}
                             className="h-20 border-b border-gray-100 dark:border-gray-900 hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors"
-                            onDragOver={(e) => handleDragOver(e, dayIndex + 1)}
-                            onDrop={(e) => handleDrop(e, dayIndex + 1, time)}
+                            onDragOver={(e) => {
+                              const container = e.currentTarget.parentElement
+                              handleDragOver(e, dayIndex + 1, container)
+                            }}
+                            onDrop={(e) => {
+                              const container = e.currentTarget.parentElement
+                              handleDrop(e, dayIndex + 1, container)
+                            }}
+                            onMouseMove={(e) => {
+                              const container = e.currentTarget.parentElement
+                              handleResizeMove(e, container)
+                            }}
+                            onMouseUp={handleResizeEnd}
                           ></div>
                         ))}
+
+                        {/* Drag preview */}
+                        {dragPreview && dragPreview.day === dayIndex + 1 && (
+                          <div
+                            className="absolute bg-blue-200 dark:bg-blue-900/40 border-2 border-blue-400 dark:border-blue-600 rounded-md pointer-events-none opacity-70"
+                            style={{
+                              ...calculateEventStyle(dragPreview.startTime, dragPreview.endTime),
+                              left: "4px",
+                              right: "4px",
+                            }}
+                          >
+                            <div className="p-2 text-xs text-blue-900 dark:text-blue-100">
+                              <div className="font-semibold">{draggedEvent?.title}</div>
+                              <div className="text-[10px] mt-0.5">{`${dragPreview.startTime} - ${dragPreview.endTime}`}</div>
+                            </div>
+                          </div>
+                        )}
 
                         {events
                           .filter((event) => event.day === dayIndex + 1)
                           .map((event, i) => {
                             const eventStyle = calculateEventStyle(event.startTime, event.endTime)
+                            const isBeingDragged = draggedEvent?.id === event.id
                             return (
                               <div
                                 key={i}
                                 draggable
                                 onDragStart={(e) => handleDragStart(e, event)}
-                                className={`absolute ${getEventClasses(event.color)} rounded-md p-2 text-xs cursor-move transition-all hover:shadow-md`}
+                                className={`absolute ${getEventClasses(event.color)} rounded-md p-2 text-xs cursor-move transition-all hover:shadow-md group ${isBeingDragged ? "opacity-30" : ""}`}
                                 style={{
                                   ...eventStyle,
                                   left: "4px",
@@ -602,8 +818,20 @@ export default function Home() {
                                 }}
                                 onClick={() => handleEventClick(event)}
                               >
+                                {/* Resize handle - top */}
+                                <div
+                                  className="absolute top-0 left-0 right-0 h-1 cursor-n-resize opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onMouseDown={(e) => handleResizeStart(e, event, "top")}
+                                />
+
                                 <div className="font-semibold truncate">{event.title}</div>
                                 <div className="opacity-80 text-[10px] mt-0.5">{`${event.startTime} - ${event.endTime}`}</div>
+
+                                {/* Resize handle - bottom */}
+                                <div
+                                  className="absolute bottom-0 left-0 right-0 h-1 cursor-s-resize opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onMouseDown={(e) => handleResizeStart(e, event, "bottom")}
+                                />
                               </div>
                             )
                           })}

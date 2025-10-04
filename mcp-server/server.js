@@ -238,50 +238,114 @@ CRITICAL FORMAT RULES:
 // 📌 Study Schedule API
 // =======================
 app.post("/schedule", async (req, res) => {
-  const { classTimes, studyGoals } = req.body;
+  const { classTimes, studyGoals, intensity = 2 } = req.body;
+
+  // Intensity-based session limits - TOTAL across the entire week
+  const intensityConfig = {
+    1: { totalSessions: 3, description: "minimal (3 sessions total for the week)" },
+    2: { totalSessions: 5, description: "light (5 sessions total for the week)" },
+    3: { totalSessions: 8, description: "moderate (8 sessions total for the week)" },
+    4: { totalSessions: 12, description: "active (12 sessions total for the week)" },
+    5: { totalSessions: 15, description: "intense (15+ sessions total for the week)" }
+  };
+
+  const config = intensityConfig[intensity] || intensityConfig[2];
 
   const prompt = `
-Generate a weekly STUDY SCHEDULE (NOT classes) as JSON with this EXACT schema. ONLY include Monday through Friday (NO weekends).
+Create a study schedule for a university student.
 
-CRITICAL: DO NOT include any classes in the schedule. Classes will be added separately by the frontend.
-CRITICAL: ONLY create study sessions based on the user's specific study goals: "${studyGoals}"
+USER'S STUDY GOALS: "${studyGoals}"
+CLASSES TO AVOID: ${classTimes.join(", ")}
+INTENSITY LEVEL: ${intensity}/5
 
-Use 12-hour time format with AM/PM in 30-minute increments ONLY (e.g., "7:00 AM - 7:30 AM", "7:30 AM - 8:00 AM").
+CRITICAL: Create EXACTLY ${config.totalSessions} study sessions TOTAL for the ENTIRE WEEK (Monday-Sunday).
+NOT ${config.totalSessions} per day - ${config.totalSessions} TOTAL across all 7 days INCLUDING WEEKENDS!
 
-Schedule should look like:
+TASK DIVISION:
+- If ONE task given: Split into ${config.totalSessions} sessions across the week
+- If MULTIPLE tasks given: Divide ${config.totalSessions} sessions between them
+
+REQUIREMENTS:
+1. EXACTLY ${config.totalSessions} sessions TOTAL for the entire week
+2. Each session: 60-120 minutes (e.g., 67min, 85min, 103min, 118min)
+3. Times: Between 6:00 AM and 11:00 PM (can use early morning and night hours)
+4. NO 30-minute blocks - all sessions must be 60+ minutes
+5. Spread sessions across ALL 7 days (Monday through Sunday) - USE WEEKENDS!
+6. Look for EMPTY GAPS in the schedule and fill them intelligently
+7. Avoid class times
+8. MUST include Saturday and Sunday in the schedule
+
+CRITICAL - AVOID REPETITION:
+❌ DON'T repeat the same task multiple times (e.g., "Review Math Notes" 4 times)
+✅ Instead, break into SPECIFIC sub-tasks:
+   - "Review Math Notes - Chapter 3 Derivatives"
+   - "Practice Math Problems - Integration Techniques"
+   - "Math Problem Set - Solve Homework Questions 1-10"
+   - "Review Math Exam - Go Through Practice Test"
+
+EXAMPLE (Intensity 1 - 3 sessions total for entire week):
+INPUT: "physics exam"
+OUTPUT:
 {
-  "Monday": {
-    "7:00 AM - 7:30 AM": "Practice Coding Problems",
-    "7:30 AM - 8:00 AM": "Continue Coding Practice"
-  },
+  "Monday": {},
   "Tuesday": {
-    "7:00 AM - 7:30 AM": "Practice Coding Problems"
+    "10:15 AM - 12:03 PM": "Physics Exam Prep - Review Chapters 1-4"
   },
-  "Wednesday": { ... },
-  "Thursday": { ... },
-  "Friday": { ... }
+  "Wednesday": {},
+  "Thursday": {},
+  "Friday": {
+    "2:30 PM - 4:22 PM": "Physics Exam Prep - Practice Problems & Solutions"
+  },
+  "Saturday": {
+    "9:00 AM - 10:47 AM": "Physics Exam Prep - Formula Review & Past Exams"
+  },
+  "Sunday": {}
 }
 
-RULES:
-1. NEVER include Saturday or Sunday
-2. NEVER include classes - ONLY study sessions
-3. Use ONLY 30-minute time slots (e.g., "7:00 AM - 7:30 AM", "7:30 AM - 8:00 AM")
-4. AVOID scheduling during these class times: ${classTimes.join(", ")}
-5. Create study sessions based SPECIFICALLY on: "${studyGoals}"
-6. If the user wants to practice coding, create "Practice Coding" sessions
-7. If the user wants to review math, create "Review Math" sessions
-8. DO NOT create generic sessions like "Review Physics Notes" unless user specifically asks for physics
-9. Use 12-hour format with AM/PM
-10. Fill each day with 3-6 study sessions (each session is 30 minutes)
+EXAMPLE (Intensity 3 - 8 sessions spread across week including weekends):
+INPUT: "coding, math"
+OUTPUT:
+{
+  "Monday": {
+    "7:00 AM - 8:45 AM": "Coding Practice - Data Structures Review"
+  },
+  "Tuesday": {
+    "6:30 PM - 8:12 PM": "Math Study - Calculus Chapter 1"
+  },
+  "Wednesday": {
+    "8:00 PM - 9:38 PM": "Coding Practice - Algorithm Problems"
+  },
+  "Thursday": {},
+  "Friday": {
+    "3:00 PM - 4:52 PM": "Math Study - Practice Problem Sets"
+  },
+  "Saturday": {
+    "10:00 AM - 11:47 AM": "Coding Practice - LeetCode Medium Problems",
+    "2:00 PM - 3:33 PM": "Math Study - Review Class Notes"
+  },
+  "Sunday": {
+    "11:00 AM - 12:45 PM": "Coding Practice - Build Mini Project",
+    "7:00 PM - 8:28 PM": "Math Study - Prepare for Quiz"
+  }
+}
 
-IMPORTANT: Return ONLY valid JSON (no text, no markdown, no code fences, no explanations).
-Only create study sessions that match the user's goals: "${studyGoals}"
+CRITICAL FINAL CHECK:
+- Count ALL sessions across Monday through Sunday (ALL 7 DAYS)
+- The total count MUST equal ${config.totalSessions}
+- If you have more than ${config.totalSessions} sessions, remove some
+- If you have less than ${config.totalSessions} sessions, add more
+- MUST include Saturday and Sunday in the JSON output even if empty
+
+Return ONLY valid JSON. NO markdown, NO code fences, NO explanations.
+YOU MUST CREATE EXACTLY ${config.totalSessions} SESSIONS TOTAL - NOT MORE, NOT LESS!
+SPREAD THEM ACROSS THE ENTIRE WEEK INCLUDING WEEKENDS!
 `;
 
   try {
     console.log("📅 Generating study schedule...");
     console.log("📋 Class times:", classTimes);
     console.log("🎯 Study goals:", studyGoals);
+    console.log("💪 Intensity level:", intensity, `(${config.totalSessions} sessions TOTAL for the week)`);
 
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
     const result = await model.generateContent(prompt);
@@ -301,8 +365,34 @@ Only create study sessions that match the user's goals: "${studyGoals}"
       return res.status(500).json({ error: "AI response was not valid JSON" });
     }
 
-    // DON'T merge classes - frontend will handle classes separately
-    // Just return the AI-generated study sessions
+    // Validate session count
+    let totalSessions = 0;
+    Object.keys(parsed).forEach(day => {
+      totalSessions += Object.keys(parsed[day]).length;
+    });
+
+    console.log(`📊 Total sessions generated: ${totalSessions} (expected: ${config.totalSessions})`);
+
+    // If AI generated too many sessions, remove excess
+    if (totalSessions > config.totalSessions) {
+      console.log(`⚠️ Too many sessions! Removing ${totalSessions - config.totalSessions} sessions...`);
+      let removed = 0;
+      const daysToRemove = totalSessions - config.totalSessions;
+
+      for (const day of Object.keys(parsed)) {
+        if (removed >= daysToRemove) break;
+        const times = Object.keys(parsed[day]);
+        while (times.length > 0 && removed < daysToRemove) {
+          const lastTime = times.pop();
+          delete parsed[day][lastTime];
+          removed++;
+        }
+      }
+
+      totalSessions = config.totalSessions;
+      console.log(`✅ Trimmed to ${totalSessions} sessions`);
+    }
+
     console.log("✅ Study schedule generated (classes NOT included):", JSON.stringify(parsed, null, 2).substring(0, 500));
 
     res.json(parsed);
