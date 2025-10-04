@@ -198,8 +198,10 @@ export default function Home() {
         const dayMap = { "Mon": 2, "Tue": 3, "Wed": 4, "Thu": 5, "Fri": 6, "Sat": 7, "Sun": 1 }
 
         classTimes.forEach((classTime) => {
+          console.log("🔍 Parsing class time:", classTime)
           // Parse format: "Mon 9:30 AM - 10:45 AM - CS 3080 - Hayes Hall 117"
           const parts = classTime.split(" - ")
+          console.log("📋 Split parts:", parts)
           if (parts.length >= 2) {
             const dayAndStartTime = parts[0].split(" ")
             const dayAbbr = dayAndStartTime[0]
@@ -207,6 +209,16 @@ export default function Home() {
             const endTime = parts[1]
             const courseName = parts.length >= 3 ? parts[2] : "Class"
             const location = parts.length >= 4 ? parts[3] : ""
+
+            console.log("✅ Parsed:", {
+              dayAbbr,
+              startTime,
+              endTime,
+              courseName,
+              location,
+              convertedStart: convertTo24Hour(startTime),
+              convertedEnd: convertTo24Hour(endTime)
+            })
 
             if (dayMap[dayAbbr]) {
               newEvents.push({
