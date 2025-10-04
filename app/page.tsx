@@ -26,9 +26,11 @@ export default function Home() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(false)
   const [currentView, setCurrentView] = useState("week")
-  const [currentMonth, setCurrentMonth] = useState("March 2025")
-  const [selectedDay, setSelectedDay] = useState(5)
-  const [currentDate, setCurrentDate] = useState("March 5")
+  const [currentMonth, setCurrentMonth] = useState("")
+  const [selectedDay, setSelectedDay] = useState(new Date().getDate())
+  const [currentDate, setCurrentDate] = useState("")
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear())
+  const [currentMonthIndex, setCurrentMonthIndex] = useState(new Date().getMonth())
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [draggedEvent, setDraggedEvent] = useState(null)
   const [dragOverDay, setDragOverDay] = useState(null)
@@ -52,6 +54,12 @@ export default function Home() {
 
   useEffect(() => {
     setIsLoaded(true)
+
+    // Initialize with current date
+    const today = new Date()
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+    setCurrentMonth(`${monthNames[today.getMonth()]} ${today.getFullYear()}`)
+    setCurrentDate(`${monthNames[today.getMonth()]} ${today.getDate()}`)
 
     // Load session ID from localStorage
     const savedSessionId = localStorage.getItem("googleSessionId")
@@ -131,7 +139,22 @@ export default function Home() {
   }
 
   const weekDays = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
-  const weekDates = [3, 4, 5, 6, 7, 8, 9]
+
+  // Calculate current week dates dynamically
+  const getWeekDates = () => {
+    const today = new Date(currentYear, currentMonthIndex, selectedDay)
+    const dayOfWeek = today.getDay() // 0 = Sunday, 1 = Monday, etc.
+    const weekStart = new Date(today)
+    weekStart.setDate(today.getDate() - dayOfWeek)
+
+    return Array.from({ length: 7 }, (_, i) => {
+      const date = new Date(weekStart)
+      date.setDate(weekStart.getDate() + i)
+      return date.getDate()
+    })
+  }
+
+  const weekDates = getWeekDates()
   const timeSlots = Array.from({ length: 24 }, (_, i) => i)
 
   const calculateEventStyle = (startTime, endTime) => {
@@ -142,11 +165,19 @@ export default function Home() {
     return { top: `${top}px`, height: `${height}px` }
   }
 
-  const daysInMonth = 31
-  const firstDayOffset = 5
-  const miniCalendarDays = Array.from({ length: daysInMonth + firstDayOffset }, (_, i) =>
-    i < firstDayOffset ? null : i - firstDayOffset + 1,
-  )
+  // Calculate mini calendar days dynamically
+  const getMiniCalendarDays = () => {
+    const firstDay = new Date(currentYear, currentMonthIndex, 1)
+    const lastDay = new Date(currentYear, currentMonthIndex + 1, 0)
+    const daysInMonth = lastDay.getDate()
+    const firstDayOffset = firstDay.getDay()
+
+    return Array.from({ length: daysInMonth + firstDayOffset }, (_, i) =>
+      i < firstDayOffset ? null : i - firstDayOffset + 1
+    )
+  }
+
+  const miniCalendarDays = getMiniCalendarDays()
 
   const myCalendars = [
     { name: "My Calendar", color: "bg-blue-500" },
@@ -402,9 +433,36 @@ export default function Home() {
   const handleDayClick = (day) => {
     if (day) {
       setSelectedDay(day)
-      setCurrentDate(`March ${day}`)
+      const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+      setCurrentDate(`${monthNames[currentMonthIndex]} ${day}`)
       setCurrentView("day")
     }
+  }
+
+  const handlePreviousMonth = () => {
+    if (currentMonthIndex === 0) {
+      setCurrentMonthIndex(11)
+      setCurrentYear(currentYear - 1)
+    } else {
+      setCurrentMonthIndex(currentMonthIndex - 1)
+    }
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+    const newMonth = currentMonthIndex === 0 ? 11 : currentMonthIndex - 1
+    const newYear = currentMonthIndex === 0 ? currentYear - 1 : currentYear
+    setCurrentMonth(`${monthNames[newMonth]} ${newYear}`)
+  }
+
+  const handleNextMonth = () => {
+    if (currentMonthIndex === 11) {
+      setCurrentMonthIndex(0)
+      setCurrentYear(currentYear + 1)
+    } else {
+      setCurrentMonthIndex(currentMonthIndex + 1)
+    }
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+    const newMonth = currentMonthIndex === 11 ? 0 : currentMonthIndex + 1
+    const newYear = currentMonthIndex === 11 ? currentYear + 1 : currentYear
+    setCurrentMonth(`${monthNames[newMonth]} ${newYear}`)
   }
 
   // Snap time to nearest interval (15 minutes by default, like Google Calendar)
@@ -633,7 +691,13 @@ export default function Home() {
       const response = await fetch("http://localhost:3001/sync-to-google-calendar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ events, sessionId: googleSessionId })
+        body: JSON.stringify({
+          events,
+          sessionId: googleSessionId,
+          currentYear,
+          currentMonth: currentMonthIndex,
+          selectedDay
+        })
       })
 
       const data = await response.json()
@@ -734,10 +798,10 @@ export default function Home() {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">{currentMonth}</h3>
               <div className="flex gap-1">
-                <button className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                <button onClick={handlePreviousMonth} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                   <ChevronLeft className="h-4 w-4 text-gray-600 dark:text-gray-400" />
                 </button>
-                <button className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                <button onClick={handleNextMonth} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                   <ChevronRight className="h-4 w-4 text-gray-600 dark:text-gray-400" />
                 </button>
               </div>

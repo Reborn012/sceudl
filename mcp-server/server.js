@@ -595,7 +595,7 @@ app.get("/google-auth-status", (req, res) => {
 // =======================
 
 app.post("/sync-to-google-calendar", async (req, res) => {
-  const { events, sessionId } = req.body;
+  const { events, sessionId, currentYear, currentMonth, selectedDay } = req.body;
 
   if (!sessionId) {
     return res.status(401).json({
@@ -624,16 +624,26 @@ app.post("/sync-to-google-calendar", async (req, res) => {
 
     const calendar = google.calendar({ version: "v3", auth: userOAuth });
 
-    // Map day numbers to actual dates (week of March 3-9, 2025)
-    const dayToDate = {
-      1: "2025-03-09", // Sunday
-      2: "2025-03-03", // Monday
-      3: "2025-03-04", // Tuesday
-      4: "2025-03-05", // Wednesday
-      5: "2025-03-06", // Thursday
-      6: "2025-03-07", // Friday
-      7: "2025-03-08"  // Saturday
+    // Calculate the current week based on the selected date
+    const getCurrentWeekDates = () => {
+      const today = new Date(currentYear || new Date().getFullYear(), currentMonth || new Date().getMonth(), selectedDay || new Date().getDate());
+      const dayOfWeek = today.getDay(); // 0 = Sunday
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - dayOfWeek);
+
+      const dayToDate = {};
+      for (let i = 0; i < 7; i++) {
+        const date = new Date(weekStart);
+        date.setDate(weekStart.getDate() + i);
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        dayToDate[i + 1] = `${year}-${month}-${day}`; // 1=Sunday, 2=Monday, etc.
+      }
+      return dayToDate;
     };
+
+    const dayToDate = getCurrentWeekDates();
 
     const createdEvents = [];
     const errors = [];
