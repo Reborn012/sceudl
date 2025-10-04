@@ -123,7 +123,10 @@ export default function Home() {
   }
 
   const handlePDFUpload = async (event) => {
+    console.log("📤 PDF Upload triggered")
     const file = event.target.files?.[0]
+    console.log("📄 File selected:", file?.name, file?.type)
+
     if (file && file.type === "application/pdf") {
       setUploadedFileName(file.name)
 
@@ -132,14 +135,17 @@ export default function Home() {
       formData.append("pdf", file)
 
       try {
+        console.log("🚀 Sending PDF to backend...")
         const response = await fetch("http://localhost:3001/upload-pdf", {
           method: "POST",
           body: formData,
         })
 
+        console.log("📥 Response received:", response.status, response.statusText)
+
         if (response.ok) {
           const data = await response.json()
-          console.log("PDF Upload Response:", data)
+          console.log("✅ PDF Upload Response:", data)
           // Auto-fill the class times from the parsed PDF
           if (data.schedule && data.schedule.classTimes) {
             setScheduleInput(data.schedule.classTimes.join("\n"))
@@ -149,15 +155,18 @@ export default function Home() {
           }
           setShowSchedulePopup(true)
         } else {
-          console.error("Failed to upload PDF")
+          const errorText = await response.text()
+          console.error("❌ Failed to upload PDF:", response.status, errorText)
           setShowSchedulePopup(true)
           setScheduleInput("")
         }
       } catch (error) {
-        console.error("Error uploading PDF:", error)
+        console.error("❌ Error uploading PDF:", error)
         setShowSchedulePopup(true)
         setScheduleInput("")
       }
+    } else {
+      console.warn("⚠️ Invalid file type or no file selected")
     }
   }
 
