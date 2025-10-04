@@ -42,6 +42,10 @@ export default function Home() {
   const [studyGoals, setStudyGoals] = useState("")
   const [uploadedFileName, setUploadedFileName] = useState("")
   const [intensity, setIntensity] = useState(2) // 1 = Light, 2 = Moderate, 3 = Heavy
+  const [showAIChat, setShowAIChat] = useState(false)
+  const [aiChatMessages, setAiChatMessages] = useState([])
+  const [aiChatInput, setAiChatInput] = useState("")
+  const [isAIThinking, setIsAIThinking] = useState(false)
 
   useEffect(() => {
     setIsLoaded(true)
@@ -152,13 +156,64 @@ export default function Home() {
         if (response.ok) {
           const data = await response.json()
           console.log("✅ PDF Upload Response:", data)
-          // Auto-fill the class times from the parsed PDF
-          if (data.schedule && data.schedule.classTimes) {
-            setScheduleInput(data.schedule.classTimes.join("\n"))
-          } else if (data.classTimes) {
-            // Backend returns classTimes directly
-            setScheduleInput(data.classTimes.join("\n"))
+
+          // Auto-sync to calendar immediately
+          const classTimes = data.classTimes || (data.schedule && data.schedule.classTimes) || []
+
+          if (classTimes.length > 0) {
+            const newEvents = []
+            let eventId = events.length + 1
+            const classColors = ["blue", "indigo", "purple"]
+            const dayMap = { "Mon": 2, "Tue": 3, "Wed": 4, "Thu": 5, "Fri": 6, "Sat": 7, "Sun": 1 }
+
+            const convertTo24Hour = (time12h) => {
+              const [time, period] = time12h.trim().split(" ")
+              let [hours, minutes] = time.split(":")
+              let hour = parseInt(hours)
+              if (period === "PM" && hour !== 12) hour += 12
+              else if (period === "AM" && hour === 12) hour = 0
+              return `${hour.toString().padStart(2, "0")}:${minutes}`
+            }
+
+            classTimes.forEach((classTime) => {
+              console.log("📋 Parsing class time:", classTime)
+              const parts = classTime.split(" - ")
+              if (parts.length >= 2) {
+                const dayAndStartTime = parts[0].split(" ")
+                const dayAbbr = dayAndStartTime[0]
+                const startTime = dayAndStartTime.slice(1).join(" ")
+                const endTime = parts[1]
+                const courseName = parts.length >= 3 ? parts[2] : "Class"
+                const location = parts.length >= 4 ? parts[3] : ""
+
+                console.log("🔍 Parsed:", { dayAbbr, startTime, endTime, courseName, location })
+
+                if (dayMap[dayAbbr]) {
+                  const newEvent = {
+                    id: eventId++,
+                    title: courseName,
+                    startTime: convertTo24Hour(startTime),
+                    endTime: convertTo24Hour(endTime),
+                    color: classColors[newEvents.length % classColors.length],
+                    day: dayMap[dayAbbr],
+                    description: `Class from ${file.name}`,
+                    location: location || "TBD",
+                    attendees: [],
+                    organizer: "University",
+                  }
+                  console.log("✅ Adding event:", newEvent)
+                  newEvents.push(newEvent)
+                }
+              }
+            })
+
+            console.log("📊 Total events to add:", newEvents.length)
+            console.log("📊 Current events:", events.length)
+            setEvents([...events, ...newEvents])
+            setScheduleInput(classTimes.join("\n"))
+            console.log(`✅ ${newEvents.length} classes added to calendar!`)
           }
+
           setShowSchedulePopup(true)
         } else {
           const errorText = await response.text()
@@ -445,6 +500,51 @@ export default function Home() {
   const handleResizeEnd = () => {
     setResizingEvent(null)
     setResizeDirection(null)
+  }
+
+  // AI Chat Handler
+  const handleAIChatSend = async () => {
+    if (!aiChatInput.trim()) return
+
+    const userMessage = { role: "user", content: aiChatInput }
+    setAiChatMessages([...aiChatMessages, userMessage])
+    setAiChatInput("")
+    setIsAIThinking(true)
+
+    try {
+      const response = await fetch("http://localhost:3001/ai-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: aiChatInput,
+          currentSchedule: events,
+        }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        const aiMessage = { role: "assistant", content: data.response }
+        setAiChatMessages([...aiChatMessages, userMessage, aiMessage])
+
+        // If AI returns schedule modifications, apply them
+        if (data.updatedSchedule) {
+          setEvents(data.updatedSchedule)
+        }
+      } else {
+        setAiChatMessages([...aiChatMessages, userMessage, {
+          role: "assistant",
+          content: "Sorry, I encountered an error. Please try again."
+        }])
+      }
+    } catch (error) {
+      console.error("AI Chat error:", error)
+      setAiChatMessages([...aiChatMessages, userMessage, {
+        role: "assistant",
+        content: "Sorry, I couldn't connect to the AI service."
+      }])
+    } finally {
+      setIsAIThinking(false)
+    }
   }
 
   // Add global mouse up handler to ensure drag always stops
@@ -919,7 +1019,7 @@ export default function Home() {
               Uploaded: <span className="font-medium">{uploadedFileName}</span>
             </p>
 
-            <div className="mb-4">
+            <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Detected Class Schedule
               </label>
@@ -927,23 +1027,11 @@ export default function Home() {
                 value={scheduleInput}
                 onChange={(e) => setScheduleInput(e.target.value)}
                 placeholder="Your class times will appear here..."
-                className="w-full h-24 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-600 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none"
+                className="w-full h-32 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-600 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none"
                 readOnly
               />
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Study Goals & Priorities
-              </label>
-              <textarea
-                value={studyGoals}
-                onChange={(e) => setStudyGoals(e.target.value)}
-                placeholder="E.g., Review math chapters, Practice coding problems, Prepare for physics exam, Complete project report..."
-                className="w-full h-32 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-600 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none"
-              />
               <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                AI will create an optimized schedule based on your goals, avoiding class times and maximizing study efficiency
+                {scheduleInput ? `${scheduleInput.split('\n').length} classes detected` : 'Waiting for PDF upload...'}
               </p>
             </div>
 
@@ -955,12 +1043,12 @@ export default function Home() {
                 Cancel
               </button>
               <button
-                onClick={handleScheduleSubmit}
-                disabled={!scheduleInput.trim() || !studyGoals.trim()}
+                onClick={() => setShowSchedulePopup(false)}
+                disabled={!scheduleInput.trim()}
                 className="px-4 py-2 text-sm font-medium text-white bg-blue-500 rounded-md hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
-                <Sparkles className="h-4 w-4" />
-                Generate AI Schedule
+                <Calendar className="h-4 w-4" />
+                Add to Calendar
               </button>
             </div>
           </div>
@@ -1056,6 +1144,111 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* AI Assistant - Always Present */}
+      <div className="fixed bottom-6 right-6 z-50">
+        {/* AI GIF Orb */}
+        <div className="relative">
+          {/* Outer glow ring */}
+          <div className="absolute inset-0 animate-pulse">
+            <div className="w-28 h-28 rounded-full bg-gradient-to-r from-purple-400/20 to-blue-400/20 blur-xl"></div>
+          </div>
+
+          {/* AI GIF */}
+          <div
+            onClick={() => setShowAIChat(!showAIChat)}
+            className="relative w-28 h-28 rounded-full flex items-center justify-center cursor-pointer transition-all hover:scale-110 overflow-hidden"
+          >
+            <img
+              src="/resources/ai.gif"
+              alt="sceudl jr."
+              className="w-full h-full object-cover rounded-full"
+            />
+          </div>
+        </div>
+
+        {/* Chat Interface - Appears above orb when active */}
+        {showAIChat && (
+          <div className="absolute bottom-32 right-0 w-96 max-h-[400px] bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border border-gray-200/50 dark:border-gray-700/50 rounded-2xl shadow-2xl flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-3 border-b border-gray-200/50 dark:border-gray-700/50">
+              <div className="flex items-center gap-2">
+                <span className="text-lg"></span>
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">sceudl jr.</h3>
+              </div>
+              <button
+                onClick={() => setShowAIChat(false)}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {aiChatMessages.length === 0 && (
+                <div className="text-center text-gray-500 dark:text-gray-400 text-sm mt-4">
+                  <p className="mb-2">👋 Hello! I'm sceudl jr.</p>
+                  <p className="text-xs">Let me help you manage your schedule.</p>
+                  <div className="mt-3 text-xs text-gray-400 dark:text-gray-500 space-y-1">
+                    <p> "Add math study at 2pm Tuesday"</p>
+                    <p> "Move CS 3080 to Thursday"</p>
+                    <p> "Clear Friday events"</p>
+                  </div>
+                </div>
+              )}
+              {aiChatMessages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                >
+                  <div
+                    className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm ${
+                      msg.role === "user"
+                        ? "bg-gradient-to-r from-purple-500 to-blue-500 text-white"
+                        : "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                    }`}
+                  >
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+              {isAIThinking && (
+                <div className="flex justify-start">
+                  <div className="bg-gray-100 dark:bg-gray-800 px-3 py-2 rounded-2xl text-sm">
+                    <div className="flex gap-1">
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Input */}
+            <div className="p-3 border-t border-gray-200/50 dark:border-gray-700/50">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={aiChatInput}
+                  onChange={(e) => setAiChatInput(e.target.value)}
+                  onKeyPress={(e) => e.key === "Enter" && handleAIChatSend()}
+                  placeholder="Type your request..."
+                  className="flex-1 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-gray-50/50 dark:bg-gray-800/50 border border-gray-300/50 dark:border-gray-600/50 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500/50 dark:focus:ring-blue-500/50 placeholder:text-gray-400 dark:placeholder:text-gray-500 backdrop-blur-sm"
+                />
+                <button
+                  onClick={handleAIChatSend}
+                  disabled={!aiChatInput.trim() || isAIThinking}
+                  className="px-4 py-2 bg-gradient-to-r from-purple-500 to-blue-500 text-white rounded-xl hover:from-purple-600 hover:to-blue-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium shadow-lg"
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -67,7 +67,7 @@ server.registerTool(
 const app = express();
 
 // ✅ Allow frontend (Next.js on multiple ports and Vite on port 5173) to call backend
-app.use(cors({ origin: ["http://localhost:5173", "http://localhost:3001", "http://localhost:3002", "http://localhost:3003", "http://localhost:3000"] }));
+app.use(cors({ origin: ["http://localhost:5173", "http://localhost:3001", "http://localhost:3002", "http://localhost:3003", "http://localhost:3000", "http://localhost:3004", "http://localhost:3005", "http://localhost:3006"] }));
 app.use(express.json());
 
 // Configure multer for file uploads (store in memory)
@@ -402,6 +402,84 @@ SPREAD THEM ACROSS THE ENTIRE WEEK INCLUDING WEEKENDS!
       return res.status(500).json({ error: "Invalid or missing Gemini API key" });
     }
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// =======================
+// 📌 AI Chat Assistant
+// =======================
+app.post("/ai-chat", async (req, res) => {
+  const { message, currentSchedule } = req.body;
+
+  const prompt = `
+You are an intelligent schedule assistant. The user has the following schedule:
+
+${JSON.stringify(currentSchedule, null, 2)}
+
+User request: "${message}"
+
+TASK: Understand the user's request and respond conversationally. If they want to modify the schedule, provide the COMPLETE updated schedule with ALL existing events PLUS your changes.
+
+CRITICAL: You MUST return the ENTIRE updated schedule array including ALL existing events. Never remove existing events unless specifically asked.
+
+RESPONSE FORMAT:
+{
+  "response": "Your conversational response to the user",
+  "action": "add" | "remove" | "update" | "none",
+  "updatedSchedule": [...] // FULL schedule with ALL existing events + your modifications
+}
+
+SCHEDULE EVENT STRUCTURE:
+{
+  "id": number,
+  "title": string,
+  "startTime": "HH:MM" (24-hour format),
+  "endTime": "HH:MM" (24-hour format),
+  "day": number (1=Sunday, 2=Monday, 3=Tuesday, 4=Wednesday, 5=Thursday, 6=Friday, 7=Saturday),
+  "color": "blue" | "indigo" | "purple" | "cyan" | "green" | "orange" | "pink" | "teal",
+  "description": string,
+  "location": string,
+  "attendees": [],
+  "organizer": string
+}
+
+EXAMPLES:
+1. "Add a study session for math on Tuesday at 2pm"
+   → action: "add", return ALL existing events PLUS new math study event at Tuesday 14:00
+
+2. "Remove all events on Friday"
+   → action: "remove", return ALL existing events EXCEPT those on Friday (day === 6)
+
+3. "Move my CS 3080 class to Thursday"
+   → action: "update", return ALL existing events with CS 3080 day changed to 5
+
+4. "What's on my schedule tomorrow?"
+   → action: "none", just respond conversationally (no updatedSchedule needed)
+
+Return ONLY valid JSON. No markdown, no code fences.
+`;
+
+  try {
+    console.log("🤖 AI Chat request:", message);
+
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const text = response.text();
+
+    console.log("📝 AI Response:", text.substring(0, 200));
+
+    // Clean and parse response
+    const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+
+    res.json(parsed);
+  } catch (error) {
+    console.error("❌ AI Chat error:", error);
+    res.status(500).json({
+      response: "I'm having trouble understanding that request. Could you rephrase it?",
+      action: "none"
+    });
   }
 });
 

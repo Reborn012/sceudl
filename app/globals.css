@@ -104,3 +104,17 @@
 .dark * {
   scrollbar-color: hsl(217.2 32.6% 25%) hsl(222.2 84% 8%);
 }
+
+/* Siri-like orb animation */
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 8s linear infinite;
+}
