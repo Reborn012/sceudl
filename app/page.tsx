@@ -46,10 +46,45 @@ export default function Home() {
   const [aiChatMessages, setAiChatMessages] = useState([])
   const [aiChatInput, setAiChatInput] = useState("")
   const [isAIThinking, setIsAIThinking] = useState(false)
+  const [isGoogleCalendarConnected, setIsGoogleCalendarConnected] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [googleSessionId, setGoogleSessionId] = useState(null)
 
   useEffect(() => {
     setIsLoaded(true)
+
+    // Load session ID from localStorage
+    const savedSessionId = localStorage.getItem("googleSessionId")
+    if (savedSessionId) {
+      setGoogleSessionId(savedSessionId)
+      checkGoogleCalendarAuth(savedSessionId)
+    }
+
+    // Listen for OAuth success messages
+    const handleMessage = (event) => {
+      if (event.data.type === "GOOGLE_AUTH_SUCCESS") {
+        const sessionId = event.data.sessionId
+        setGoogleSessionId(sessionId)
+        localStorage.setItem("googleSessionId", sessionId)
+        setIsGoogleCalendarConnected(true)
+      }
+    }
+
+    window.addEventListener("message", handleMessage)
+    return () => window.removeEventListener("message", handleMessage)
   }, [])
+
+  const checkGoogleCalendarAuth = async (sessionId) => {
+    if (!sessionId) return
+
+    try {
+      const response = await fetch(`http://localhost:3001/google-auth-status?sessionId=${sessionId}`)
+      const data = await response.json()
+      setIsGoogleCalendarConnected(data.authenticated)
+    } catch (error) {
+      console.error("Failed to check Google Calendar auth:", error)
+    }
+  }
 
   useEffect(() => {
     if (isDarkMode) {
@@ -565,6 +600,63 @@ export default function Home() {
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp)
   }, [resizingEvent, isDragging])
 
+  const handleGoogleCalendarConnect = async () => {
+    try {
+      const response = await fetch("http://localhost:3001/google-auth-url")
+      const data = await response.json()
+
+      // Save session ID
+      setGoogleSessionId(data.sessionId)
+      localStorage.setItem("googleSessionId", data.sessionId)
+
+      // Open OAuth window
+      window.open(data.authUrl, "_blank", "width=600,height=700")
+    } catch (error) {
+      console.error("Failed to connect Google Calendar:", error)
+    }
+  }
+
+  const handleSyncToGoogleCalendar = async () => {
+    if (events.length === 0) {
+      alert("No events to sync!")
+      return
+    }
+
+    if (!googleSessionId) {
+      alert("Please connect your Google Calendar first")
+      handleGoogleCalendarConnect()
+      return
+    }
+
+    setIsSyncing(true)
+    try {
+      const response = await fetch("http://localhost:3001/sync-to-google-calendar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ events, sessionId: googleSessionId })
+      })
+
+      const data = await response.json()
+
+      if (data.requiresAuth) {
+        alert("Please connect your Google Calendar first")
+        localStorage.removeItem("googleSessionId")
+        setGoogleSessionId(null)
+        setIsGoogleCalendarConnected(false)
+        handleGoogleCalendarConnect()
+      } else if (data.success) {
+        alert(`✅ Successfully synced ${data.synced} of ${data.total} events to Google Calendar!`)
+      } else {
+        alert("Failed to sync events")
+      }
+    } catch (error) {
+      console.error("Sync error:", error)
+      alert("Failed to sync with Google Calendar")
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
   const formatTimeDisplay = (hour) => {
     if (hour === 0) return "12 AM"
     if (hour < 12) return `${hour} AM`
@@ -608,7 +700,7 @@ export default function Home() {
 
       <main className="flex h-[calc(100vh-57px)]">
         <div className="w-60 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 p-4 flex flex-col overflow-y-auto">
-          <div className="mb-6">
+          <div className="mb-6 space-y-2">
             <label
               htmlFor="pdf-upload"
               className="flex items-center justify-center gap-2 rounded-md bg-blue-500 px-3 py-2 text-sm font-medium text-white cursor-pointer transition-all hover:bg-blue-600"
@@ -617,6 +709,25 @@ export default function Home() {
               <span>Upload PDF</span>
             </label>
             <input id="pdf-upload" type="file" accept="application/pdf" onChange={handlePDFUpload} className="hidden" />
+
+            {!isGoogleCalendarConnected ? (
+              <button
+                onClick={handleGoogleCalendarConnect}
+                className="w-full flex items-center justify-center gap-2 rounded-md bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer transition-all hover:border-blue-500 dark:hover:border-blue-500"
+              >
+                <Calendar className="h-4 w-4" />
+                <span>Connect Google Calendar</span>
+              </button>
+            ) : (
+              <button
+                onClick={handleSyncToGoogleCalendar}
+                disabled={isSyncing || events.length === 0}
+                className="w-full flex items-center justify-center gap-2 rounded-md bg-green-500 px-3 py-2 text-sm font-medium text-white cursor-pointer transition-all hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Calendar className="h-4 w-4" />
+                <span>{isSyncing ? "Syncing..." : "Sync to Google Calendar"}</span>
+              </button>
+            )}
           </div>
 
           <div className="mb-6">

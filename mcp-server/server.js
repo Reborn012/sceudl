@@ -7,6 +7,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { z } from "zod";
 import dotenv from "dotenv";
 import multer from "multer";
+import { google } from "googleapis";
 
 // Load environment variables
 dotenv.config({ path: "../.env" });
@@ -21,6 +22,17 @@ if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === "your_gemini_a
 
 // Load Gemini key from environment
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// Google Calendar OAuth2 client setup
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI || "http://localhost:3001/oauth2callback"
+);
+
+// Store user tokens by session (in production, use a database)
+// This allows multiple users to authenticate independently
+const userTokensMap = new Map();
 
 // Create MCP server
 const server = new McpServer({
@@ -506,10 +518,206 @@ app.post("/mcp", async (req, res) => {
 });
 
 // =======================
+// 📌 Google Calendar OAuth Routes
+// =======================
+
+// Step 1: Get authorization URL
+app.get("/google-auth-url", (req, res) => {
+  // Generate a session ID for this user
+  const sessionId = randomUUID();
+
+  const authUrl = oauth2Client.generateAuthUrl({
+    access_type: "offline",
+    scope: ["https://www.googleapis.com/auth/calendar"],
+    prompt: "consent",
+    state: sessionId // Pass session ID to track this user
+  });
+
+  res.json({ authUrl, sessionId });
+});
+
+// Step 2: OAuth callback
+app.get("/oauth2callback", async (req, res) => {
+  const { code, state: sessionId } = req.query;
+
+  try {
+    const { tokens } = await oauth2Client.getToken(code);
+
+    // Store tokens for this specific user session
+    userTokensMap.set(sessionId, tokens);
+
+    console.log(`✅ Google Calendar authenticated for session: ${sessionId}`);
+    res.send(`
+      <html>
+        <body style="font-family: Arial; text-align: center; padding: 50px;">
+          <h2>✅ Google Calendar Connected!</h2>
+          <p>You can now sync your events with Google Calendar.</p>
+          <p>You can close this window and return to the app.</p>
+          <script>
+            window.opener.postMessage({ type: 'GOOGLE_AUTH_SUCCESS', sessionId: '${sessionId}' }, '*');
+            setTimeout(() => window.close(), 2000);
+          </script>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error("❌ OAuth error:", error);
+    res.status(500).send(`
+      <html>
+        <body style="font-family: Arial; text-align: center; padding: 50px;">
+          <h2>❌ Authentication Failed</h2>
+          <p>Error: ${error.message}</p>
+          <p>Please make sure you added the correct redirect URI to your Google Cloud Console:</p>
+          <code>http://localhost:3001/oauth2callback</code>
+        </body>
+      </html>
+    `);
+  }
+});
+
+// Check auth status
+app.get("/google-auth-status", (req, res) => {
+  const sessionId = req.query.sessionId;
+
+  if (!sessionId) {
+    return res.json({ authenticated: false });
+  }
+
+  const tokens = userTokensMap.get(sessionId);
+  res.json({
+    authenticated: !!tokens?.access_token,
+    hasRefreshToken: !!tokens?.refresh_token
+  });
+});
+
+// =======================
+// 📌 Google Calendar Sync
+// =======================
+
+app.post("/sync-to-google-calendar", async (req, res) => {
+  const { events, sessionId } = req.body;
+
+  if (!sessionId) {
+    return res.status(401).json({
+      error: "No session ID provided",
+      requiresAuth: true
+    });
+  }
+
+  const userTokens = userTokensMap.get(sessionId);
+
+  if (!userTokens?.access_token) {
+    return res.status(401).json({
+      error: "Not authenticated with Google Calendar",
+      requiresAuth: true
+    });
+  }
+
+  try {
+    // Create a new OAuth client for this user
+    const userOAuth = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+    userOAuth.setCredentials(userTokens);
+
+    const calendar = google.calendar({ version: "v3", auth: userOAuth });
+
+    // Map day numbers to actual dates (week of March 3-9, 2025)
+    const dayToDate = {
+      1: "2025-03-09", // Sunday
+      2: "2025-03-03", // Monday
+      3: "2025-03-04", // Tuesday
+      4: "2025-03-05", // Wednesday
+      5: "2025-03-06", // Thursday
+      6: "2025-03-07", // Friday
+      7: "2025-03-08"  // Saturday
+    };
+
+    const createdEvents = [];
+    const errors = [];
+
+    for (const event of events) {
+      try {
+        const date = dayToDate[event.day];
+        const [startHour, startMin] = event.startTime.split(":");
+        const [endHour, endMin] = event.endTime.split(":");
+
+        const googleEvent = {
+          summary: event.title,
+          description: event.description || "",
+          location: event.location || "",
+          start: {
+            dateTime: `${date}T${event.startTime}:00`,
+            timeZone: "America/New_York"
+          },
+          end: {
+            dateTime: `${date}T${event.endTime}:00`,
+            timeZone: "America/New_York"
+          },
+          colorId: getGoogleCalendarColorId(event.color)
+        };
+
+        const result = await calendar.events.insert({
+          calendarId: "primary",
+          resource: googleEvent
+        });
+
+        createdEvents.push({
+          id: event.id,
+          googleEventId: result.data.id,
+          title: event.title
+        });
+
+        console.log(`✅ Synced: ${event.title}`);
+      } catch (err) {
+        console.error(`❌ Failed to sync ${event.title}:`, err.message);
+        errors.push({ eventId: event.id, error: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      synced: createdEvents.length,
+      total: events.length,
+      events: createdEvents,
+      errors: errors.length > 0 ? errors : undefined
+    });
+
+  } catch (error) {
+    console.error("❌ Google Calendar sync error:", error);
+    res.status(500).json({
+      error: "Failed to sync with Google Calendar",
+      details: error.message
+    });
+  }
+});
+
+// Helper function to map app colors to Google Calendar color IDs
+function getGoogleCalendarColorId(color) {
+  const colorMap = {
+    blue: "1",      // Lavender
+    indigo: "9",    // Blue
+    purple: "3",    // Purple
+    cyan: "7",      // Cyan
+    green: "2",     // Sage
+    orange: "6",    // Orange
+    pink: "4",      // Flamingo
+    teal: "10",     // Basil
+    red: "11",      // Tomato
+    yellow: "5"     // Banana
+  };
+  return colorMap[color] || "1";
+}
+
+// =======================
 // 📌 Start Server
 // =======================
 app.listen(3001, () => {
   console.log("✅ MCP + Scheduler server running at http://localhost:3001");
   console.log("➡️  Scheduler API: POST http://localhost:3001/schedule");
   console.log("➡️  MCP endpoint: POST http://localhost:3001/mcp");
+  console.log("➡️  Google Calendar Auth: GET http://localhost:3001/google-auth-url");
+  console.log("➡️  Google Calendar Sync: POST http://localhost:3001/sync-to-google-calendar");
 });
